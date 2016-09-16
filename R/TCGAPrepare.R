@@ -5,33 +5,69 @@
 #' @param query A query for GDCquery function
 #' @param save Save result as RData object?
 #' @param save.filename Name of the file to be save if empty an automatic will be created
+#' @param directory Directory/Folder where the data was downloaded. Default: GDCdata
 #' @param summarizedExperiment Create a summarizedExperiment? Default TRUE (if possible)
+#' @param remove.files.prepared Remove the files read? Default: FALSE
+#' This argument will be considered only if save argument is set to true
 #' @export
+#' @examples
+#' query <- GDCquery(project = "TCGA-KIRP",
+#'                   data.category = "Simple Nucleotide Variation",
+#'                   data.type = "Masked Somatic Mutation")
+#'                   GDCdownload(query, method = "api", directory = "maf")
+#' GDCdownload(query, method = "api", directory = "maf")
+#' maf <- GDCprepare(query, directory = "maf")
+#'
+#' query <- GDCquery(project = "TCGA-ACC",
+#'                    data.category =  "Copy number variation",
+#'                    legacy = TRUE,
+#'                    file.type = "hg19.seg",
+#'                    barcode = c("TCGA-OR-A5LR-01A-11D-A29H-01", "TCGA-OR-A5LJ-10A-01D-A29K-01"))
+#' # data will be saved in  GDCdata/TCGA-ACC/legacy/Copy_number_variation/Copy_number_segmentation
+#' GDCdownload(query, method = "api")
+#' acc.cnv <- GDCprepare(query)
 #' @return A summarizedExperiment or a data.frame
-GDCPrepare <- function(query, save = FALSE, save.filename, summarizedExperiment = TRUE){
+GDCprepare <- function(query,
+                       save = FALSE,
+                       save.filename,
+                       directory = "GDCdata",
+                       summarizedExperiment = TRUE,
+                       remove.files.prepared = FALSE){
 
     if(missing(query)) stop("Please set query parameter")
 
-    # We save the files in project/data.category/data.type/file_id/file_name
-    files <- file.path(query$project,
+    if(!save & remove.files.prepared) {
+        stop("To remove the files, please set save to TRUE. Otherwise, the data will be lost")
+    }
+    # We save the files in project/source/data.category/data.type/file_id/file_name
+    source <- ifelse(query$legacy,"legacy","harmonized")
+    files <- file.path(query$project, source,
                        gsub(" ","_",query$results[[1]]$data_category),
                        gsub(" ","_",query$results[[1]]$data_type),
                        gsub(" ","_",query$results[[1]]$file_id),
                        gsub(" ","_",query$results[[1]]$file_name))
 
+    files <- file.path(directory, files)
+
+    if(!all(file.exists(files))) stop(paste0("I couldn't find all the files from the query.",
+                                             "Please check directory parameter right"))
+
     if(grepl("Transcriptome Profiling", query$data.category, ignore.case = TRUE)){
         data <- readTranscriptomeProfiling(files = files,
                                            data.type = query$data.type,
                                            workflow.type = unique(query$results[[1]]$analysis$workflow_type),
-                                           cases = query$results[[1]]$cases)
+                                           cases = query$results[[1]]$cases,
+                                           summarizedExperiment)
     } else if(grepl("Copy Number Variation",query$data.category,ignore.case = TRUE)) {
-        data <- readCopyNumberVariantion(files, query$results[[1]]$cases)
+        data <- readCopyNumberVariation(files, query$results[[1]]$cases)
     }  else if(grepl("DNA methylation",query$data.category, ignore.case = TRUE)) {
         data <- readDNAmethylation(files, query$results[[1]]$cases, summarizedExperiment, unique(query$platform))
     }  else if(grepl("Protein expression",query$data.category,ignore.case = TRUE)) {
         data <- readProteinExpression(files, query$results[[1]]$cases)
+    }  else if(grepl("Simple Nucleotide Variation",query$data.category,ignore.case = TRUE)) {
+        if(query$data.type == "Masked Somatic Mutation") data <- readSimpleNucleotideVariationMaf(files)
     }  else if(grepl("Clinical|Biospecimen", query$data.category, ignore.case = TRUE)){
-        mesage("Mot working yet")
+        message("Mot working yet")
         # data <- readClinical(files, query$results[[1]]$cases)
     } else if (grepl("Gene expression",query$data.category,ignore.case = TRUE)) {
         if(query$data.type == "Gene expression quantification")
@@ -47,8 +83,58 @@ GDCPrepare <- function(query, save = FALSE, save.filename, summarizedExperiment 
         message(paste0("Saving file:",save.filename))
         save(data, file = save.filename)
         message("File saved")
+
+        # save is true, due to the check in the beggining of the code
+        if(remove.files.prepared){
+            # removes files and empty directories
+            remove.files.recursively(files)
+        }
     }
+
     return(data)
+}
+
+remove.files.recursively <- function(files){
+    files2rm <- dirname(files)
+    unlink(files2rm,recursive = TRUE)
+    files2rm <- dirname(files2rm) # data category
+    if(length(list.files(files2rm)) == 0) remove.files.recursively(files2rm)
+}
+
+readSimpleNucleotideVariationMaf <- function(files){
+        ret <- read_tsv(files,
+                        comment = "#",
+                        col_types = cols(
+                            Entrez_Gene_Id = col_integer(),
+                            Start_Position = col_integer(),
+                            End_Position = col_integer(),
+                            t_depth = col_integer(),
+                            t_ref_count = col_integer(),
+                            t_alt_count = col_integer(),
+                            n_depth = col_integer(),
+                            ALLELE_NUM = col_integer(),
+                            TRANSCRIPT_STRAND = col_integer(),
+                            PICK = col_integer(),
+                            TSL = col_integer(),
+                            HGVS_OFFSET = col_integer(),
+                            MINIMISED = col_integer()))
+        if(ncol(ret) == 1) ret <- read_csv(files,
+                                           comment = "#",
+                                           col_types = cols(
+                                               Entrez_Gene_Id = col_integer(),
+                                               Start_Position = col_integer(),
+                                               End_Position = col_integer(),
+                                               t_depth = col_integer(),
+                                               t_ref_count = col_integer(),
+                                               t_alt_count = col_integer(),
+                                               n_depth = col_integer(),
+                                               ALLELE_NUM = col_integer(),
+                                               TRANSCRIPT_STRAND = col_integer(),
+                                               PICK = col_integer(),
+                                               TSL = col_integer(),
+                                               HGVS_OFFSET = col_integer(),
+                                               MINIMISED = col_integer()))
+        return(ret)
 }
 
 readGeneExpressionQuantification <- function(files, cases, summarizedExperiment = TRUE, platform){
@@ -79,7 +165,12 @@ readGeneExpressionQuantification <- function(files, cases, summarizedExperiment 
     }
     setDF(df)
 
-    if (summarizedExperiment) df <- makeSEfromGeneExpressionQuantification(df,assay.list)
+    if (summarizedExperiment) {
+        df <- makeSEfromGeneExpressionQuantification(df,assay.list)
+    } else {
+        rownames(df) <- df$gene_id
+        df$gene_id <- NULL
+    }
     return(df)
 }
 makeSEfromGeneExpressionQuantification <- function(df, assay.list, genome="hg19"){
@@ -123,13 +214,11 @@ makeSEfromGeneExpressionQuantification <- function(df, assay.list, genome="hg19"
                     "-[:alnum:]{3}-[:alnum:]{3}-[:alnum:]{4}-[:alnum:]{2}")
     samples <- na.omit(unique(str_match(colnames(df),regex)[,1]))
     colData <-  colDataPrepare(samples)
-
     assays <- lapply(assays, function(x){
         colnames(x) <- NULL
         rownames(x) <- NULL
         return(x)
     })
-    save(assays,rowRanges,colData,file = "test2.rda")
     rse <- SummarizedExperiment(assays=assays,
                                 rowRanges=rowRanges,
                                 colData=colData)
@@ -257,6 +346,7 @@ colDataPrepareTARGET <- function(barcode){
     samples <- str_match(barcode,regex)[,1]
 
     ret <- DataFrame(barcode = barcode,
+                     patient = substr(barcode, 1, 16),
                      tumor.code = substr(barcode, 8, 9),
                      case.unique.id = substr(barcode, 11, 16),
                      tissue.code = substr(barcode, 18, 19),
@@ -300,7 +390,7 @@ colDataPrepareTARGET <- function(barcode){
                                    "DNA, unamplified, from the first isolation of a tissue embedded in FFPE",
                                    "DNA, whole genome amplified by Qiagen (one independent reaction)",
                                    "DNA, whole genome amplified by Qiagen (a second, separate independent reaction)",
-                                   "DNA, whole genome amplified by Qiagen (pool of “W” and “X” aliquots)",
+                                   "DNA, whole genome amplified by Qiagen (pool of 'W' and 'X' aliquots)",
                                    "RNA, from the first isolation of a tissue",
                                    "RNA, from the first isolation of a tissue embedded in FFPE")
     aux <- DataFrame(nucleic.acid.code = nucleic.acid.code,nucleic.acid.description)
@@ -361,13 +451,13 @@ colDataPrepareTCGA <- function(barcode){
 }
 
 colDataPrepare <- function(barcode){
+
     # For the moment this will work only for TCGA Data
     # We should search what TARGET data means
     message("Starting to add information to samples")
 
     if(all(grepl("TARGET",barcode))) ret <- colDataPrepareTARGET(barcode)
     if(all(grepl("TCGA",barcode))) ret <- colDataPrepareTCGA(barcode)
-
     message(" => Add clinical information to samples")
     # There is a limitation on the size of the string, so this step will be splited in cases of 100
     patient.info <- NULL
@@ -398,7 +488,9 @@ colDataPrepare <- function(barcode){
                 # Subtype information were to primary tumor in priority
                 subtype$sample <- paste0(subtype$subtype_patient,"-01A")
             }
+
             ret <- merge(ret,subtype, by = "sample", all.x = TRUE)
+
         }
     }
     ret <- ret[match(barcode,ret$barcode),]
@@ -498,7 +590,7 @@ makeSEfromTranscriptomeProfiling <- function(data, cases, assay.list){
     return(rse)
 }
 
-readTranscriptomeProfiling <- function(files, data.type, workflow.type, cases) {
+readTranscriptomeProfiling <- function(files, data.type, workflow.type, cases,summarizedExperiment) {
     # Status working for:
     #  - htseq
     #  - FPKM
@@ -506,14 +598,19 @@ readTranscriptomeProfiling <- function(files, data.type, workflow.type, cases) {
     if(grepl("HTSeq",workflow.type)){
         pb <- txtProgressBar(min = 0, max = length(files), style = 3)
         for (i in seq_along(files)) {
-            data <- read_tsv(file = files[i], col_names = FALSE)
+            data <- read_tsv(file = files[i],
+                             col_names = FALSE,
+                             col_types = cols(
+                                 X1 = col_character(),
+                                 X2 = col_double()
+                             ))
             if(!missing(cases))  colnames(data)[2] <- cases[i]
             if(i == 1) df <- data
             if(i != 1) df <- merge(df, data, by=colnames(df)[1],all = TRUE)
             setTxtProgressBar(pb, i)
         }
         close(pb)
-        df <- makeSEfromTranscriptomeProfiling(df,cases,workflow.type)
+        if(summarizedExperiment) df <- makeSEfromTranscriptomeProfiling(df,cases,workflow.type)
     } else if(grepl("miRNA", workflow.type) & grepl("miRNA", data.type)) {
         pb <- txtProgressBar(min = 0, max = length(files), style = 3)
         for (i in seq_along(files)) {
@@ -530,14 +627,13 @@ readTranscriptomeProfiling <- function(files, data.type, workflow.type, cases) {
     return(df)
 }
 
-# Reads Copy Number Variantion files to a data frame, basically it will rbind it
-readCopyNumberVariantion <- function(files, cases){
-
+# Reads Copy Number Variation files to a data frame, basically it will rbind it
+readCopyNumberVariation <- function(files, cases){
+    message("Reading a copy  number variation")
     pb <- txtProgressBar(min = 0, max = length(files), style = 3)
     for (i in seq_along(files)) {
-        data <- read_tsv(file = files[i])
-        aux <- query$results[[1]]
-        if(!missing(cases)) data$Barcode <- cases[i]
+        data <- read_tsv(file = files[i], col_names = TRUE, col_types = "ccnnnd")
+        if(!missing(cases)) data$Sample <- cases[i]
         if(i == 1) df <- data
         if(i != 1) df <- rbind(df, data, make.row.names = FALSE)
         setTxtProgressBar(pb, i)
@@ -546,20 +642,13 @@ readCopyNumberVariantion <- function(files, cases){
     return(df)
 }
 
-# Source: https://stackoverflow.com/questions/10266963/moving-files-between-folders
-move <- function(from, to) {
-    todir <- dirname(to)
-    if (!isTRUE(file.info(todir)$isdir)) dir.create(todir, recursive=TRUE,showWarnings = FALSE)
-    file.rename(from = from,  to = to)
-}
-
 getBarcodeInfo <- function(barcode) {
     baseURL <- "https://gdc-api.nci.nih.gov/cases/?"
     options.pretty <- "pretty=true"
     options.expand <- "expand=project,diagnoses,diagnoses.treatments,annotations,family_histories,demographic,exposures"
     option.size <- paste0("size=",length(barcode))
-    message(paste(barcode,collapse = '","'))
-    message(paste0('"',paste(barcode,collapse = '","')))
+    #message(paste(barcode,collapse = '","'))
+    #message(paste0('"',paste(barcode,collapse = '","')))
     options.filter <- paste0("filters=",
                              URLencode('{"op":"and","content":[{"op":"in","content":{"field":"cases.submitter_id","value":['),
                              paste0('"',paste(barcode,collapse = '","')),
@@ -567,26 +656,60 @@ getBarcodeInfo <- function(barcode) {
     #message(paste0(baseURL,paste(options.pretty,options.expand, option.size, options.filter, sep = "&")))
     json <- fromJSON(paste0(baseURL,paste(options.pretty,options.expand, option.size, options.filter, sep = "&")), simplifyDataFrame = TRUE)
     results <- json$data$hits
+    submitter_id <- results$submitter_id
+
+    # We dont have the same cols for TCGA and TARGET so we need to check them
     diagnoses <- rbindlist(results$diagnoses, fill = TRUE)
-    diagnoses$submitter_id <- gsub("_diagnosis","", diagnoses$submitter_id)
+    if(any(grepl("submitter_id", colnames(diagnoses)))) {
+        diagnoses$submitter_id <- gsub("_diagnosis","", diagnoses$submitter_id)
+    }  else {
+        diagnoses$submitter_id <- submitter_id
+    }
+    df <- diagnoses
+
     exposures <- rbindlist(results$exposures, fill = TRUE)
-    exposures$submitter_id <- gsub("_exposure","", exposures$submitter_id)
-    results$demographic$submitter_id <- gsub("_demographic","", results$demographic$submitter_id)
-    df <- merge(diagnoses,exposures, by="submitter_id", all = TRUE,sort = FALSE)
-    df <- merge(df,results$demographic, by="submitter_id", all = TRUE,sort = FALSE)
-    treatments <- rbindlist(df$treatments,fill = TRUE)
-    df[,treatments:=NULL]
-    treatments$submitter_id <- gsub("_treatment","", treatments$submitter_id)
-    df <- merge(df,treatments, by="submitter_id", all = TRUE,sort = FALSE)
+    if(nrow(exposures) > 0) {
+        if(any(grepl("submitter_id", colnames(exposures)))) {
+            exposures$submitter_id <- gsub("_exposure","", exposures$submitter_id)
+        }  else {
+            exposures$submitter_id <- submitter_id
+        }
+        df <- merge(df,exposures, by="submitter_id", all = TRUE,sort = FALSE)
+    }
+
+    demographic <- results$demographic
+    if(nrow(demographic) > 0) {
+        if(any(grepl("submitter_id", colnames(demographic)))) {
+            demographic$submitter_id <- gsub("_demographic","", results$demographic$submitter_id)
+        } else {
+            demographic$submitter_id <-submitter_id
+        }
+        df <- merge(df,demographic, by="submitter_id", all = TRUE,sort = FALSE)
+    }
+
+    treatments <- rbindlist(results$treatments,fill = TRUE)
+    if(nrow(treatments) > 0) {
+        df[,treatments:=NULL]
+
+        if(any(grepl("submitter_id", colnames(treatments)))) {
+            treatments$submitter_id <- gsub("_treatment","", treatments$submitter_id)
+        } else {
+            treatments$submitter_id <-submitter_id
+        }
+        df <- merge(df,treatments, by="submitter_id", all = TRUE,sort = FALSE)
+    }
+
     df$bcr_patient_barcode <- df$submitter_id
     df <- cbind(df,results$project)
+
+    # Adding in the same order
+    df <- df[match(barcode,df$submitter_id)]
 
     # This line should not exists, but some patients does not have clinical data
     # case: TCGA-R8-A6YH"
     # this has been reported to GDC, waiting answers
     # So we will remove this NA cases
     df <- df[!is.na(df$submitter_id),]
-
     return(df)
 }
 
@@ -594,15 +717,7 @@ getBarcodeInfo <- function(barcode) {
 #' @title Read the data from level 3 the experiments and prepare it
 #'  for downstream analysis into a SummarizedExperiment object.
 #' @description
-#'  This function will read the data from level 3 the experiments and prepare it
-#'  for downstream analysis into a SummarizedExperiment object.
-#'
-#'  The samples are always refered by their barcode.
-#'
-#'  If you want to save the data into an rda file, please use the \emph{save}
-#'  parameter that will save an rda object with the  \emph{filename} parameter.
-#'  If no filename was set, the filename will be the concatenation of platform and
-#'  Sys.time.
+#'  This function has been replaced by GDCprepare
 #'
 #' List of accepted platforms:
 #'\itemize{
@@ -632,14 +747,8 @@ getBarcodeInfo <- function(barcode) {
 #' @param save Save a rda object with the prepared object?
 #'  Default: \code{FALSE}
 #' @param filename Name of the saved file
-#' @param add.mutation.genes Integrate information about genes mutation? DEFAULT: FALSE
-#' @param reannotate Reannotate genes?  Source http://grch37.ensembl.org/.
-#' DEFAULT: FALSE. (For the moment only working for methylation data)
 #' @param summarizedExperiment Output as SummarizedExperiment?
 #' Default: \code{FALSE}
-#' @param add.subtype Add subtype information from tcgaquery_subtype? Default: \code{FALSE}
-#' @param add.clinical Add clinical information from TCGAquery_clinic?
-#' (The information file add will be: clinical_patient) Default: \code{FALSE}
 #' @examples
 #' \dontrun{
 #' sample <- "TCGA-06-0939-01A-01D-1228-05"
@@ -699,14 +808,17 @@ TCGAprepare_elmer <- function(data,
                        "To linearize \n    relation between ",
                        "methylation and expression"))
         if(typeof(data) == typeof(SummarizedExperiment())){
+            row.names(data) <- paste0("ID",values(data)$entrezgene)
             data <- assay(data)
         }
 
+        if(all(grepl("\\|",rownames(data)))){
+            message("2 - rownames  (gene|loci) => ('ID'loci) ")
+            aux <- strsplit(rownames(data),"\\|")
+            GeneID <- unlist(lapply(aux,function(x) x[2]))
+            row.names(data) <- paste0("ID",GeneID)
+        }
         data <- log2(data+1)
-        message("2 - rownames  (gene|loci) => ('ID'loci) ")
-        aux <- strsplit(rownames(data),"\\|")
-        GeneID <- unlist(lapply(aux,function(x) x[2]))
-        row.names(data) <- paste0("ID",GeneID)
         Exp <- data.matrix(data)
 
         if (save)  save(Exp,file = "Exp_elmer.rda")

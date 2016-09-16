@@ -2,7 +2,7 @@ Package: TCGAbiolinks
 Type: Package
 Title: TCGAbiolinks: An R/Bioconductor package for integrative analysis with
     TCGA data
-Version: 1.3.7
+Version: 2.1.6
 Date: 2015-12-13
 Author: Antonio Colaprico,
     Tiago Chedraoui Silva,
@@ -27,15 +27,15 @@ Imports:
     grDevices,
     graphics,
     GenomicRanges,
-    XML,
+    XML (>= 3.98.0),
     Biobase,
     affy,
     xtable,
     data.table,
     EDASeq (>= 2.0.0),
-    RCurl,
+    RCurl (>= 1.95.0),
     edgeR (>= 3.0.0),
-    jsonlite,
+    jsonlite (>= 1.0.0),
     plyr,
     knitr,
     biomaRt,
@@ -54,9 +54,9 @@ Imports:
     igraph,
     supraHex,
     S4Vectors,
-    ComplexHeatmap,
+    ComplexHeatmap (>= 1.10.2),
     R.utils,
-    SummarizedExperiment,
+    SummarizedExperiment (>= 1.2.3),
     BiocGenerics,
     GenomicFeatures,
     TxDb.Hsapiens.UCSC.hg19.knownGene,
@@ -74,7 +74,9 @@ Imports:
     cowplot,
     reshape2,
     gtable,
+    httr (>= 1.2.1),
     sjmisc,
+    parmigene,
     matlab,
     circlize,
     ggrepel

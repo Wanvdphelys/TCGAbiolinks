@@ -38,11 +38,11 @@ isServeOK <- function(){
 checkProjectInput <- function(project){
     projects <- getGDCprojects()
     if(missing(project)) {
-        print(knitr::kable(getGDCprojects()[,c(4:6,8)]))
+        print(knitr::kable(projects[,c(4:6,8)]))
         stop("Please set a project argument from the column project_id above")
     }
     if(!(project %in% projects$project_id)) {
-        print(knitr::kable(getGDCprojects()[,c(4:6,8)]))
+        print(knitr::kable(projects[,c(4:6,8)]))
         stop("Please set a valid project argument from the column project_id above")
     }
 }
@@ -103,16 +103,19 @@ checkBarcodeDefinition <- function(definition){
 #' projects <- getGDCprojects()
 #' @return A data frame with last GDC projects
 getGDCprojects <- function(){
-    projects <- read_tsv("https://gdc-api.nci.nih.gov/projects?size=1000&format=tsv")
+    projects <- read_tsv("https://gdc-api.nci.nih.gov/projects?size=1000&format=tsv", col_types = "ccccccc")
     projects$tumor <- unlist(lapply(projects$project_id, function(x){unlist(str_split(x,"-"))[2]}))
     return(projects)
 }
 
 # Source: https://stackoverflow.com/questions/10266963/moving-files-between-folders
 move <- function(from, to) {
-    todir <- dirname(to)
-    if (!isTRUE(file.info(todir)$isdir)) dir.create(todir, recursive=TRUE,showWarnings = FALSE)
-    file.rename(from = from,  to = to)
+    if(file.exists(from)){
+        todir <- dirname(to)
+        if (!isTRUE(file.info(todir)$isdir)) dir.create(todir, recursive=TRUE,showWarnings = FALSE)
+        file.rename(from = from,  to = to)
+        if(dirname(from) != ".") unlink(dirname(from),recursive=TRUE,force = TRUE)
+    }
 }
 
 getProjectSummary <- function(project, legacy = FALSE){
@@ -130,39 +133,6 @@ getNbFiles <- function(project, data.category, legacy = FALSE){
     summary <- getProjectSummary(project, legacy)$data_categories
     nb <- summary[summary$data_category == data.category,"file_count"]
     return(nb)
-}
-
-# Get all files in the ftp directory @keywords internal
-getFileNames <- function(url) {
-
-    x <- read_html(url) %>% XML::htmlTreeParse() %>%  capture.output()
-    x <- x[grep("href", x)]
-    if (is.null(x)){
-        return(NULL)
-    }
-    x = sapply(strsplit(x, ">"), function(y) y[2])
-    if (is.null(x)){
-        return(NULL)
-    }
-    x = sapply(strsplit(x, "<"), function(y) y[1])
-    return(x)
-}
-
-
-#' @import utils
-#' @importFrom RCurl getURL
-.DownloadURL <-
-    function(Site){
-        # setInternet2(use = TRUE)
-        Site <- URLencode(Site)
-        x=  getURL(Site, ssl.verifypeer = FALSE)
-        x <- unlist(strsplit(x,"\n"))
-        return(x)
-    }
-
-.scale01 <- function(x, low = min(x), high = max(x)) {
-    x <- (x - low)/(high - low)
-    x
 }
 
 .quantileNormalization <-

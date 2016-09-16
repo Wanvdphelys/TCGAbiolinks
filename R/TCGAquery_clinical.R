@@ -274,8 +274,8 @@ clinical_data_site_cancer <- function(cancer){
 
 #' @title Get DDC clinical data
 #' @description
-#'   GDCquery_clinic will download all clinical information from the API
-#'   as the one with using the button from each project
+#' GDCquery_clinic will download all clinical information from the API
+#' as the one with using the button from each project
 #' @param project A valid project (see list with getGDCprojects()$project_id)]
 #' @param type A valid type. Options "clinical", "Biospecimen"  (see list with getGDCprojects()$project_id)]
 #' @param save.csv Write clinical information into a csv document
@@ -338,35 +338,55 @@ GDCquery_clinic <- function(project, type = "clinical", save.csv = FALSE){
 }
 
 #' @title Parsing clinical xml files
+#' @description
 #' This function receives the query argument and parses the clinical xml files
 #' based on the desired information
 #' @param query Result from GDCquery, with data.category set to Clinical
 #' @param clinical.info Which information should be retrieved.
 #' Options: drug, admin, follow_up,radiation, patient, stage_event or new_tumor event
+#' @param directory Directory/Folder where the data was downloaded. Default: GDCdata
 #' @importFrom xml2 read_xml xml_ns
 #' @importFrom XML xmlParse getNodeSet xmlToDataFrame
+#' @importFrom plyr rbind.fill
 #' @export
 #' @examples
-#' query <- GDCquery(project = "TCGA-COAD", data.category = "Clinical", barcode = c("TCGA-RU-A8FL","TCGA-AA-3972"))
-#' GDCDownload(query)
-#' clinical <- GDCPrepare_clinic(query,"patient")
-#' clinical.drug <- GDCPrepare_clinic(query,"drug")
-#' clinical.radiation <- GDCPrepare_clinic(query,"radiation")
-#' clinical.admin <- GDCPrepare_clinic(query,"admin")
-GDCPrepare_clinic <- function(query, clinical.info){
+#' query <- GDCquery(project = "TCGA-COAD",
+#'                   data.category = "Clinical",
+#'                   barcode = c("TCGA-RU-A8FL","TCGA-AA-3972"))
+#' GDCdownload(query)
+#' clinical <- GDCprepare_clinic(query,"patient")
+#' clinical.drug <- GDCprepare_clinic(query,"drug")
+#' clinical.radiation <- GDCprepare_clinic(query,"radiation")
+#' clinical.admin <- GDCprepare_clinic(query,"admin")
+GDCprepare_clinic <- function(query, clinical.info, directory = "GDCdata"){
     if(missing(clinical.info)) stop("Please select a clinical information")
 
     # Get all the clincal xml files
-    files <- file.path(query$project,
+    source <- ifelse(query$legacy,"legacy","harmonized")
+    files <- file.path(query$project, source,
                        gsub(" ","_",query$results[[1]]$data_category),
                        gsub(" ","_",query$results[[1]]$data_type),
                        gsub(" ","_",query$results[[1]]$file_id),
                        gsub(" ","_",query$results[[1]]$file_name))
+    files <- file.path(directory, files)
+    if(!all(file.exists(files))) stop(paste0("I couldn't find all the files from the query.",
+                                             "Please check directory parameter right"))
+
 
     disease <- tolower(gsub("TCGA-","",query$project))
     if(tolower(clinical.info) == "drug")      xpath <- "//rx:drug"
     if(tolower(clinical.info) == "admin")     xpath <- "//admin:admin"
-    if(tolower(clinical.info) == "follow_up") xpath <- "//follow_up_v1.0:follow_up"
+    if(tolower(clinical.info) == "follow_up"){
+        xmlfile <- files[1]
+        xml <- read_xml(xmlfile)
+        follow_up_version <-  names(xml_ns(xml))[grepl("follow_up",names(xml_ns(xml)))]
+        if(length(follow_up_version) > 1) {
+            n <- readline(prompt=paste0("There is more than one follow up version, please select one",
+                          paste0(seq(1:length(follow_up_version)), follow_up_version)))
+            follow_up_version <- follow_up_version[n]
+        }
+        xpath <- paste0("//", follow_up_version, ":follow_up")
+    }
     if(tolower(clinical.info) == "radiation") xpath <- "//rad:radiation"
     if(tolower(clinical.info) == "patient")   xpath <- paste0("//",disease,":patient")
     if(tolower(clinical.info) == "stage_event")     xpath <- "//shared_stage:stage_event"
@@ -383,12 +403,13 @@ GDCPrepare_clinic <- function(query, clinical.info){
         # Test if this xpath exists before parsing it
         if(gsub("\\/\\/","", unlist(stringr::str_split(xpath,":"))[1]) %in% names(xml_ns(xml))){
             df <- xmlToDataFrame(nodes = getNodeSet(doc,xpath))
+            if(NA %in% colnames(df)) df <- df[,!is.na(colnames(df))]
             if(nrow(df) == 0) next
             df$bcr_patient_barcode <- patient
             if(i == 1) {
                 clin <- df
             } else {
-                clin <- rbind(clin,df)
+                clin <- rbind.fill(clin,df)
             }
         }
     }

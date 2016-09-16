@@ -5,7 +5,7 @@
 \title{Query GDC data}
 \usage{
 GDCquery(project, data.category, data.type, workflow.type, legacy = FALSE,
-  platform, file.type, barcode, sample.type)
+  access, platform, file.type, barcode, experimental.strategy, sample.type)
 }
 \arguments{
 \item{project}{A valid project (see list with TCGAbiolinks:::getGDCprojects()$project_id)]}
@@ -17,6 +17,8 @@ GDCquery(project, data.category, data.type, workflow.type, legacy = FALSE,
 \item{workflow.type}{GDC workflow type}
 
 \item{legacy}{Search in the legacy repository}
+
+\item{access}{Filter by access type. Possible values: controlled, open}
 
 \item{platform}{Example:
 \tabular{ll}{
@@ -50,6 +52,12 @@ to define which file types to be used.}
 
 \item{barcode}{A list of barcodes to filter the files to download}
 
+\item{experimental.strategy}{Filter to experimental stratey. Harmonized: WXS, RNA-Seq, miRNA-Seq, Genotyping Array.
+Legacy:  WXS, RNA-Seq, miRNA-Seq, Genotyping Array,
+DNA-Seq, Methylation array, Protein expression array, WXS,CGH array, VALIDATION, Gene expression array,WGS,
+MSI-Mono-Dinucleotide Assay, miRNA expression array, Mixed strategies, AMPLICON, Exon array,
+Total RNA-Seq, Capillary sequencing, Bisulfite-Seq}
+
 \item{sample.type}{A sample type to filter the files to download}
 }
 \value{
@@ -60,5 +68,34 @@ Uses GDC API to search for search, it searches for both controlled and
   open-acess data.
   For GDC data arguments project, data.category, data.type and workflow.type should be used
   For the legacy data arguments project, data.category, platform and/or file.extension should be used.
+  Please, see the vignette for a table with the possibilities.
+}
+\examples{
+query <- GDCquery(project = "TCGA-ACC",
+                  data.category = "Copy Number Variation",
+                  data.type = "Copy Number Segment")
+query.met <- GDCquery(project = "TCGA-GBM",
+                      legacy = TRUE,
+                      data.category = "DNA methylation",
+                      platform = "Illumina Human Methylation 450")
+query <- GDCquery(project = "TARGET-AML",
+                  data.category = "Transcriptome Profiling",
+                  data.type = "miRNA Expression Quantification",
+                  workflow.type = "BCGSC miRNA Profiling",
+                  barcode = c("TARGET-20-PARUDL-03A-01R","TARGET-20-PASRRB-03A-01R"))
+query <- GDCquery(project = "TCGA-ACC",
+                  data.category =  "Copy Number Variation",
+                  data.type = "Masked Copy Number Segment",
+                  sample.type = c("Primary solid Tumor"))
+query <- GDCquery(project = "TARGET-AML",
+                  data.category = "Transcriptome Profiling",
+                  data.type = "Gene Expression Quantification",
+                  workflow.type = "HTSeq - Counts",
+                  barcode = c("TARGET-20-PADZCG-04A-01R","TARGET-20-PARJCR-09A-01R"))
+query <- GDCquery(project = "TCGA-ACC",
+                  data.category =  "Copy number variation",
+                  legacy = TRUE,
+                  file.type = "hg19.seg",
+                  barcode = c("TCGA-OR-A5LR-01A-11D-A29H-01"))
 }
 
